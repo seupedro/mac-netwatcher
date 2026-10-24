@@ -69,6 +69,19 @@ to roughly 15–23 MB.
 
 Requires macOS 14 or later (Apple silicon or Intel).
 
+### With Homebrew
+
+```sh
+brew install --cask seupedro/tap/netwatch
+```
+
+The cask removes the quarantine flag, so it opens without the Gatekeeper
+warning. To start it at login: **System Settings → General → Login Items**.
+`brew uninstall --cask netwatch` removes it (`--zap` also deletes the data in
+`~/.netwatch`).
+
+### Manually
+
 1. Download `Netwatch-1.0.0.zip` from
    [Releases](https://github.com/seupedro/netwatch/releases), unzip it and move
    `Netwatch.app` to `/Applications`.

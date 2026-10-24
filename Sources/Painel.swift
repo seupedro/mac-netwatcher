@@ -140,10 +140,11 @@ func desenhaPainel(_ m: Monitor, fundoDeTeste: Bool) {
     // cabecalho: latencia grande e o estado embaixo
     let grande: String, cor: NSColor, sub: String
     if m.medindo {
-        (grande, cor, sub) = ("…", p.eixo, "medindo")
+        (grande, cor, sub) = ("…", p.eixo, tr("medindo", "measuring"))
     } else if !m.online {
-        (grande, cor, sub) = ("Sem conexão", p.vermelho,
-                              "há \(dur(agora - m.caiuEm)) · desde \(fmt(m.caiuEm, "%H:%M:%S"))")
+        let (ha, desde) = (dur(agora - m.caiuEm), fmt(m.caiuEm, "%H:%M:%S"))
+        (grande, cor, sub) = (tr("Sem conexão", "No connection"), p.vermelho,
+                              tr("há \(ha) · desde \(desde)", "for \(ha) · since \(desde)"))
     } else if let u = m.ultimo {
         (grande, cor, sub) = ("\(Int(u.ms.rounded())) ms", p.ms(u.ms), "online · via \(m.cfg.alvos[u.alvo].ip)")
     } else {
@@ -252,19 +253,19 @@ func desenhaPainel(_ m: Monitor, fundoDeTeste: Bool) {
         NSBezierPath(ovalIn: NSRect(x: u.x - 3, y: y - 3, width: 6, height: 6)).fill()
     }
     if r.amostras == 0 {
-        texto("sem medições nesta janela", gx + gw / 2, gy + gh / 2 - 7, 0.5, fonte(11, .normal), p.eixo)
+        texto(tr("sem medições nesta janela", "no measurements in this window"), gx + gw / 2, gy + gh / 2 - 7, 0.5, fonte(11, .normal), p.eixo)
     }
 
     let f = jan <= 900 ? "%H:%M:%S" : "%H:%M"
     let ey = gy + gh + 4
     texto(fmt(t0, f), gx, ey, 0, rotulo, p.eixo)
     texto(fmt((t0 + t1) / 2, f), gx + gw / 2, ey, 0.5, rotulo, p.eixo)
-    texto("agora", gx + gw, ey, 1, rotulo, p.eixo)
+    texto(tr("agora", "now"), gx + gw, ey, 1, rotulo, p.eixo)
 
     // faixa das ultimas 24h
     let fy: CGFloat = 240
     let titulo = fonte(11, .forte)
-    texto("Últimas 24 h", MARGEM, fy, 0, titulo, p.texto2)
+    texto(tr("Últimas 24 h", "Last 24 h"), MARGEM, fy, 0, titulo, p.texto2)
     let (sx, sw) = (MARGEM, LARGURA - MARGEM * 2)
     let ncol = Int(sw / 3)
     let cw = sw / CGFloat(ncol)
@@ -289,7 +290,7 @@ func desenhaPainel(_ m: Monitor, fundoDeTeste: Bool) {
     // numeros da janela e quedas recentes
     let ny: CGFloat = 300
     retangulo(MARGEM, ny - 10, LARGURA - MARGEM * 2, 0.5, p.grade)
-    texto("Janela \(nome)", MARGEM, ny, 0, titulo, p.texto2)
+    texto(tr("Janela \(nome)", "Last \(nome)"), MARGEM, ny, 0, titulo, p.texto2)
     let normal = fonte(12, .normal)
     let forte = fonte(12, .medio)
     func linha(_ i: Int, _ chave: String, _ valor: String, _ cor: NSColor) {
@@ -299,25 +300,26 @@ func desenhaPainel(_ m: Monitor, fundoDeTeste: Bool) {
     }
     let up = r.onlinePct
     let corUp = up >= 99.5 ? p.verde : up >= 95 ? p.amarelo : p.vermelho
-    linha(0, "Online", "\(umaCasa(Float(up)))%  ·  \(r.amostras) amostras", corUp)
-    linha(1, "Quedas", "\(r.quedas)  ·  \(dur(r.fora)) fora", r.quedas > 0 ? p.vermelho : p.texto)
+    linha(0, "Online", "\(umaCasa(Float(up)))%  ·  \(r.amostras) " + tr("amostras", "samples"), corUp)
+    linha(1, tr("Quedas", "Outages"), "\(r.quedas)  ·  \(dur(r.fora)) " + tr("fora", "down"),
+          r.quedas > 0 ? p.vermelho : p.texto)
     if !r.lat.isEmpty {
         let med = pct(r.lat, 50)
-        linha(2, "Mediana", "\(Int(med.rounded())) ms  ·  p95 \(Int(pct(r.lat, 95).rounded()))", p.ms(med))
-        linha(3, "Mín–máx", "\(Int(r.lat[0].rounded())) – \(Int(r.lat[r.lat.count - 1].rounded())) ms", p.texto)
+        linha(2, tr("Mediana", "Median"), "\(Int(med.rounded())) ms  ·  p95 \(Int(pct(r.lat, 95).rounded()))", p.ms(med))
+        linha(3, tr("Mín–máx", "Min–max"), "\(Int(r.lat[0].rounded())) – \(Int(r.lat[r.lat.count - 1].rounded())) ms", p.texto)
     }
-    linha(4, "Sessão", "\(dur(agora - m.inicio))  ·  \(nQuedas(m.quedas))", p.texto)
+    linha(4, tr("Sessão", "Session"), "\(dur(agora - m.inicio))  ·  \(nQuedas(m.quedas))", p.texto)
 
     let qx = LARGURA / 2 + 24
-    texto("Quedas em 24 h · \(qs.count)", qx, ny, 0, titulo, p.texto2)
-    if qs.isEmpty { texto("nenhuma", qx, ny + 20, 0, normal, p.verde) }
+    texto(tr("Quedas em 24 h · \(qs.count)", "Outages in 24 h · \(qs.count)"), qx, ny, 0, titulo, p.texto2)
+    if qs.isEmpty { texto(tr("nenhuma", "none"), qx, ny + 20, 0, normal, p.verde) }
     let hoje = fmt(agora, "%Y%m%d")
     for (i, q) in qs.reversed().prefix(5).enumerated() {
         let y = ny + 20 + CGFloat(i) * 18
-        let quando = fmt(q.ini, "%Y%m%d") == hoje ? fmt(q.ini, "%H:%M:%S") : fmt(q.ini, "%d/%m %H:%M")
+        let quando = fmt(q.ini, "%Y%m%d") == hoje ? fmt(q.ini, "%H:%M:%S") : fmt(q.ini, tr("%d/%m %H:%M", "%b %d %H:%M"))
         texto(quando, qx, y, 0, normal, p.texto2)
         if q.emCurso {
-            texto("em curso", LARGURA - MARGEM, y, 1, forte, p.vermelho)
+            texto(tr("em curso", "ongoing"), LARGURA - MARGEM, y, 1, forte, p.vermelho)
         } else {
             texto(dur(q.fim - q.ini), LARGURA - MARGEM, y, 1, forte, p.texto)
         }
@@ -355,13 +357,16 @@ final class Painel: NSView, NSMenuDelegate {
 
     // com o menu aberto a barra acompanha cada amostra, igual ao painel
     func menuWillOpen(_ menu: NSMenu) {
-        App.comum.com { c in
+        let mudouIdioma = App.comum.com { c -> Bool in
             c.menuAberto = true
             // config.toml editado: cores novas ja neste menu e na barra
+            let antes = idiomaAtual
             if c.m.recarregaConfig() { c.barra.classe = .max }
             _ = barraMudou(c, aberto: true)
             App.aplicaBarra(c.barra, c.m.faixas)
+            return antes != idiomaAtual
         }
+        if mudouIdioma { App.idiomaMudou() }
     }
 
     func menuDidClose(_ menu: NSMenu) {

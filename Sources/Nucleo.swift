@@ -1,6 +1,6 @@
-// Nucleo do Netwatch: config, faixas de cor, historico, quedas e analise.
+// Nucleo do Mac Netwatcher: config, faixas de cor, historico, quedas e analise.
 // Arquivos em ~/.netwatch: samples.csv (uma linha por teste), events.log
-// (quedas, voltas, pausas) e config.toml (faixas de cor).
+// (quedas, voltas, pausas) e config.toml (faixas de cor e idioma).
 
 import Darwin
 
@@ -93,7 +93,9 @@ func pct(_ ordenado: [Float], _ p: Double) -> Float {
 }
 
 /// "1 queda", "3 quedas".
-func nQuedas(_ n: Int) -> String { "\(n) queda\(n == 1 ? "" : "s")" }
+func nQuedas(_ n: Int) -> String {
+    n == 1 ? tr("1 queda", "1 outage") : tr("\(n) quedas", "\(n) outages")
+}
 
 // ---------------------------------------------------------------- arquivos
 
@@ -247,21 +249,53 @@ struct Faixas: Equatable {
     }
 }
 
-/// Comentario no topo do config.toml.
-let CABECALHO_CONFIG = """
-    # Configuracao do Netwatch. Da para editar aqui ou em Configuracoes..., no
-    # menu do app. Depois de salvar o arquivo, abra o menu de novo para aplicar.
+/// Comentario no topo do config.toml, no idioma em uso.
+func cabecalhoConfig() -> String {
+    tr("""
+        # Configuracao do Mac Netwatcher. Da para editar aqui ou em
+        # Configuracoes..., no menu do app. Depois de salvar o arquivo, abra o
+        # menu de novo para aplicar.
 
-    # Faixas de cor da latencia, da menor para a maior. Cada faixa vale ate
-    # `ate_ms` (inclusive); a ultima, sem `ate_ms`, vale para o resto.
-    # `cor` e usada no tema claro e `cor_escuro` no tema escuro (opcional: sem
-    # ela, `cor` vale nos dois). Pode ter quantas faixas quiser.
+        # Idioma: "pt" ou "en". Sem esta linha, segue o idioma do macOS.
 
-    """
+        """, """
+        # Mac Netwatcher settings. Edit them here or in Settings..., in the app
+        # menu. After saving this file, open the menu again to apply.
 
-/// Texto completo de um config.toml com estas faixas.
-func textoConfig(_ f: Faixas) -> String {
-    var s = CABECALHO_CONFIG + "faixas = [\n"
+        # Language: "pt" or "en". Without this line, it follows macOS.
+
+        """)
+}
+
+func cabecalhoFaixas() -> String {
+    tr("""
+
+        # Faixas de cor da latencia, da menor para a maior. Cada faixa vale ate
+        # `ate_ms` (inclusive); a ultima, sem `ate_ms`, vale para o resto.
+        # `cor` e usada no tema claro e `cor_escuro` no tema escuro (opcional: sem
+        # ela, `cor` vale nos dois). Pode ter quantas faixas quiser.
+
+        """, """
+
+        # Latency color bands, from lowest to highest. Each band applies up to
+        # `ate_ms` (inclusive); the last one, without `ate_ms`, covers the rest.
+        # `cor` is used in light mode and `cor_escuro` in dark mode (optional:
+        # without it, `cor` is used in both). Add as many bands as you like.
+
+        """)
+}
+
+/// O que o config.toml guarda. idioma nil = o do sistema.
+struct ConfigArquivo: Equatable {
+    var faixas: Faixas = .padrao
+    var idioma: Idioma?
+}
+
+/// Texto completo de um config.toml com estas faixas e este idioma.
+func textoConfig(_ f: Faixas, idioma: Idioma? = nil) -> String {
+    var s = cabecalhoConfig()
+    if let idioma { s += "idioma = \"\(idioma.rawValue)\"\n" }
+    s += cabecalhoFaixas() + "faixas = [\n"
     for x in f.lista {
         let limite = x.ateMs.map { "ate_ms = \(numTexto($0)), " } ?? ""
         let escuro = x.corEscuro == x.cor ? "" : ", cor_escuro = \"\(x.corEscuro.hex)\""
@@ -270,38 +304,87 @@ func textoConfig(_ f: Faixas) -> String {
     return s + "]\n"
 }
 
+/// Troca so a linha `idioma = ...` de um config.toml (nil = tira a linha),
+/// sem mexer no resto do texto.
+func trocaIdioma(_ texto: String, _ idioma: Idioma?) -> String {
+    var linhas = texto.split(separator: "\n", omittingEmptySubsequences: false).filter { l in
+        let t = l.drop { $0 == " " || $0 == "\t" }
+        guard t.hasPrefix("idioma") else { return true }
+        let resto = t.dropFirst("idioma".count).drop { $0 == " " || $0 == "\t" }
+        return !resto.hasPrefix("=")
+    }
+    if let idioma { linhas.insert(Substring("idioma = \"\(idioma.rawValue)\""), at: 0) }
+    return linhas.joined(separator: "\n")
+}
+
 /// Resultado com a mensagem de erro em texto (Result exige um tipo Error).
 enum Lido<T> {
     case success(T)
     case failure(String)
 }
 
-/// Le e valida o texto de um config.toml.
-func lerFaixas(_ texto: String) -> Lido<Faixas> {
+/// Le e valida o texto de um config.toml. Com erro nas faixas, o idioma
+/// ainda vale (se a linha dele estiver certa): um erro de digitacao nas
+/// cores nao troca o idioma do app.
+func lerConfig(_ texto: String) -> (ConfigArquivo, String?) {
     let raiz: [(String, NoToml)]
     do {
         var leitor = LeitorToml(texto)
         raiz = try leitor.documento()
     } catch let e as ErroToml {
-        return .failure(e.msg)
+        return (ConfigArquivo(), e.msg)
     } catch {
-        return .failure("\(error)")
+        return (ConfigArquivo(), "\(error)")
     }
+    var r = ConfigArquivo()
     var faixas: NoToml?
+    var erroIdioma: String?
     for (k, v) in raiz {
-        if k != "faixas" { return .failure("linha \(v.linha): campo desconhecido `\(k)` (esperado `faixas`)") }
-        faixas = v
+        switch (k, v.v) {
+        case ("faixas", _):
+            faixas = v
+        case ("idioma", .texto(let s)):
+            if let i = Idioma(rawValue: s) {
+                r.idioma = i
+            } else {
+                erroIdioma = tr("linha \(v.linha): idioma \"\(s)\" nao existe (use \"pt\" ou \"en\")",
+                                "line \(v.linha): unknown language \"\(s)\" (use \"pt\" or \"en\")")
+            }
+        case ("idioma", _):
+            erroIdioma = tr("linha \(v.linha): `idioma` tem que ser um texto (\"pt\" ou \"en\")",
+                            "line \(v.linha): `idioma` must be a string (\"pt\" or \"en\")")
+        default:
+            return (r, tr("linha \(v.linha): campo desconhecido `\(k)` (os campos sao `idioma` e `faixas`)",
+                          "line \(v.linha): unknown field `\(k)` (the fields are `idioma` and `faixas`)"))
+        }
     }
-    guard let faixas else { return .failure("falta o campo `faixas`") }
+    guard let faixas else { return (r, tr("falta o campo `faixas`", "missing field `faixas`")) }
+    switch lerFaixas(faixas) {
+    case .success(let f): r.faixas = f
+    case .failure(let e): return (r, e)
+    }
+    return (r, erroIdioma)
+}
+
+/// Le e valida so as faixas de um config.toml.
+func lerFaixas(_ texto: String) -> Lido<Faixas> {
+    let (c, e) = lerConfig(texto)
+    if let e { return .failure(e) }
+    return .success(c.faixas)
+}
+
+private func lerFaixas(_ faixas: NoToml) -> Lido<Faixas> {
     guard case .lista(let itens) = faixas.v else {
-        return .failure("linha \(faixas.linha): `faixas` tem que ser uma lista")
+        return .failure(tr("linha \(faixas.linha): `faixas` tem que ser uma lista",
+                           "line \(faixas.linha): `faixas` must be a list"))
     }
-    if itens.isEmpty { return .failure("faixas vazia: precisa de pelo menos uma") }
+    if itens.isEmpty { return .failure(tr("faixas vazia: precisa de pelo menos uma", "`faixas` is empty: it needs at least one band")) }
     var v: [Faixa] = []
     for (i, item) in itens.enumerated() {
         let n = i + 1
         guard case .tabela(let campos) = item.v else {
-            return .failure("linha \(item.linha): cada faixa tem que ser uma tabela { ... }")
+            return .failure(tr("linha \(item.linha): cada faixa tem que ser uma tabela { ... }",
+                               "line \(item.linha): each band must be a table { ... }"))
         }
         var ate: Float?
         var cor: String?
@@ -311,26 +394,36 @@ func lerFaixas(_ texto: String) -> Lido<Faixas> {
             case ("ate_ms", .numero(let x)): ate = Float(x)
             case ("cor", .texto(let s)): cor = s
             case ("cor_escuro", .texto(let s)): corEscuro = s
-            case ("ate_ms", _): return .failure("linha \(c.linha): `ate_ms` tem que ser um numero")
+            case ("ate_ms", _):
+                return .failure(tr("linha \(c.linha): `ate_ms` tem que ser um numero", "line \(c.linha): `ate_ms` must be a number"))
             case ("cor", _), ("cor_escuro", _):
-                return .failure("linha \(c.linha): `\(k)` tem que ser um texto \"#rrggbb\"")
+                return .failure(tr("linha \(c.linha): `\(k)` tem que ser um texto \"#rrggbb\"",
+                                   "line \(c.linha): `\(k)` must be a string \"#rrggbb\""))
             default:
-                return .failure("linha \(c.linha): campo desconhecido `\(k)` (os campos sao ate_ms, cor e cor_escuro)")
+                return .failure(tr("linha \(c.linha): campo desconhecido `\(k)` (os campos sao ate_ms, cor e cor_escuro)",
+                                   "line \(c.linha): unknown field `\(k)` (the fields are ate_ms, cor and cor_escuro)"))
             }
         }
-        guard let cor else { return .failure("linha \(item.linha): falta o campo `cor`") }
-        guard let rgb = RGB.de(cor) else { return .failure("faixa \(n): cor invalida \"\(cor)\" (use #rrggbb)") }
+        guard let cor else {
+            return .failure(tr("linha \(item.linha): falta o campo `cor`", "line \(item.linha): missing field `cor`"))
+        }
+        let invalida = { (c: String) in
+            tr("faixa \(n): cor invalida \"\(c)\" (use #rrggbb)", "band \(n): invalid color \"\(c)\" (use #rrggbb)")
+        }
+        guard let rgb = RGB.de(cor) else { return .failure(invalida(cor)) }
         var rgbEscuro = rgb
         if let c = corEscuro {
-            guard let e = RGB.de(c) else { return .failure("faixa \(n): cor invalida \"\(c)\" (use #rrggbb)") }
+            guard let e = RGB.de(c) else { return .failure(invalida(c)) }
             rgbEscuro = e
         }
         let ultima = n == itens.count
         if ate == nil && !ultima {
-            return .failure("faixa \(n): falta ate_ms (so a ultima pode ficar sem)")
+            return .failure(tr("faixa \(n): falta ate_ms (so a ultima pode ficar sem)",
+                               "band \(n): missing ate_ms (only the last one can go without)"))
         }
         if let l = ate, let ant = v.last?.ateMs, l <= ant {
-            return .failure("faixa \(n): ate_ms = \(numTexto(l)) tem que ser maior que o da anterior (\(numTexto(ant)))")
+            return .failure(tr("faixa \(n): ate_ms = \(numTexto(l)) tem que ser maior que o da anterior (\(numTexto(ant)))",
+                               "band \(n): ate_ms = \(numTexto(l)) must be greater than the previous one (\(numTexto(ant)))"))
         }
         v.append(Faixa(ateMs: ate, cor: rgb, corEscuro: rgbEscuro))
     }
@@ -338,15 +431,17 @@ func lerFaixas(_ texto: String) -> Lido<Faixas> {
 }
 
 /// Le o config.toml da pasta dos logs, criando com o padrao se nao existir.
-/// Com erro, devolve as faixas padrao e a mensagem.
-func carregarFaixas(_ dir: String) -> (Faixas, String?) {
+/// Com erro, devolve as faixas padrao (e o idioma, se deu para ler) e a
+/// mensagem.
+func carregarConfig(_ dir: String) -> (ConfigArquivo, String?) {
     let caminho = juntar(dir, "config.toml")
     if !existe(caminho) { _ = escreveArquivo(caminho, textoConfig(.padrao)) }
-    guard let texto = leArquivo(caminho) else { return (.padrao, "config.toml: nao deu para ler") }
-    switch lerFaixas(texto) {
-    case .success(let f): return (f, nil)
-    case .failure(let e): return (.padrao, "config.toml: \(e)")
+    guard let texto = leArquivo(caminho) else {
+        return (ConfigArquivo(), tr("config.toml: nao deu para ler", "config.toml: couldn't read it"))
     }
+    let (c, e) = lerConfig(texto)
+    guard let e else { return (c, nil) }
+    return (ConfigArquivo(faixas: .padrao, idioma: c.idioma), "config.toml: \(e)")
 }
 
 // ---------------------------------------------------------------- toml
@@ -378,7 +473,7 @@ struct LeitorToml {
     private var fim: Bool { i >= b.count }
     private var atual: UInt8 { i < b.count ? b[i] : 0 }
 
-    private func erro(_ msg: String) -> ErroToml { ErroToml(msg: "linha \(linha): \(msg)") }
+    private func erro(_ msg: String) -> ErroToml { ErroToml(msg: tr("linha", "line") + " \(linha): \(msg)") }
 
     private mutating func anda() {
         if atual == UInt8(ascii: "\n") { linha += 1 }
@@ -405,11 +500,11 @@ struct LeitorToml {
         pulaEspacos()
         if atual == UInt8(ascii: "#") { while !fim && atual != UInt8(ascii: "\n") { anda() } }
         if atual == UInt8(ascii: "\r") { anda() }
-        if !fim && atual != UInt8(ascii: "\n") { throw erro("esperava fim de linha depois do valor") }
+        if !fim && atual != UInt8(ascii: "\n") { throw erro(tr("esperava fim de linha depois do valor", "expected end of line after the value")) }
     }
 
     private mutating func espera(_ c: Character) throws {
-        guard atual == c.asciiValue! else { throw erro("esperava `\(c)`") }
+        guard atual == c.asciiValue! else { throw erro(tr("esperava `\(c)`", "expected `\(c)`")) }
         anda()
     }
 
@@ -421,10 +516,10 @@ struct LeitorToml {
                 || c == UInt8(ascii: "_") || c == UInt8(ascii: "-") {
             anda()
         }
-        if i == ini { throw erro("esperava um nome de campo") }
+        if i == ini { throw erro(tr("esperava um nome de campo", "expected a field name")) }
         let k = String(decoding: b[ini..<i], as: UTF8.self)
         pulaEspacos()
-        if atual == UInt8(ascii: ".") { throw erro("chave com ponto (`\(k).…`) nao e suportada") }
+        if atual == UInt8(ascii: ".") { throw erro(tr("chave com ponto (`\(k).…`) nao e suportada", "dotted keys (`\(k).…`) are not supported")) }
         return k
     }
 
@@ -433,7 +528,7 @@ struct LeitorToml {
         // cabecalho atual: [x] ou [[x]] (indice do item na lista)
         var destino: (chave: String, item: Int?)?
         func poe(_ k: String, _ v: NoToml, em lista: inout [(String, NoToml)], _ leitor: LeitorToml) throws {
-            if lista.contains(where: { $0.0 == k }) { throw leitor.erro("campo `\(k)` repetido") }
+            if lista.contains(where: { $0.0 == k }) { throw leitor.erro(tr("campo `\(k)` repetido", "duplicate field `\(k)`")) }
             lista.append((k, v))
         }
         while true {
@@ -454,7 +549,7 @@ struct LeitorToml {
                 if duplo {
                     let nova = NoToml(v: .tabela([]), linha: l)
                     if let p = pos {
-                        guard case .lista(var itens) = raiz[p].1.v else { throw erro("campo `\(k)` repetido") }
+                        guard case .lista(var itens) = raiz[p].1.v else { throw erro(tr("campo `\(k)` repetido", "duplicate field `\(k)`")) }
                         itens.append(nova)
                         raiz[p].1.v = .lista(itens)
                         destino = (k, itens.count - 1)
@@ -463,7 +558,7 @@ struct LeitorToml {
                         destino = (k, 0)
                     }
                 } else {
-                    if pos != nil { throw erro("campo `\(k)` repetido") }
+                    if pos != nil { throw erro(tr("campo `\(k)` repetido", "duplicate field `\(k)`")) }
                     raiz.append((k, NoToml(v: .tabela([]), linha: l)))
                     destino = (k, nil)
                 }
@@ -525,7 +620,7 @@ struct LeitorToml {
                 pulaEspacos()
                 var v = try valor()
                 v.linha = lk
-                if campos.contains(where: { $0.0 == k }) { throw erro("campo `\(k)` repetido") }
+                if campos.contains(where: { $0.0 == k }) { throw erro(tr("campo `\(k)` repetido", "duplicate field `\(k)`")) }
                 campos.append((k, v))
                 pulaBrancos()
                 if atual == UInt8(ascii: ",") { anda(); continue }
@@ -545,7 +640,7 @@ struct LeitorToml {
             if s == "false" { return NoToml(v: .logico(false), linha: l) }
             let limpo = s.replacingAll("_", "")
             guard !limpo.isEmpty, let d = Double(limpo), d.isFinite else {
-                throw ErroToml(msg: "linha \(l): valor invalido `\(s)`")
+                throw ErroToml(msg: tr("linha \(l): valor invalido `\(s)`", "line \(l): invalid value `\(s)`"))
             }
             return NoToml(v: .numero(d), linha: l)
         }
@@ -556,7 +651,7 @@ struct LeitorToml {
         anda()
         var bytes: [UInt8] = []
         while true {
-            if fim || atual == UInt8(ascii: "\n") { throw erro("texto sem fechar as aspas") }
+            if fim || atual == UInt8(ascii: "\n") { throw erro(tr("texto sem fechar as aspas", "unterminated string")) }
             let c = atual
             anda()
             if c == aspas { break }
@@ -571,10 +666,10 @@ struct LeitorToml {
                 case UInt8(ascii: "u"), UInt8(ascii: "U"):
                     let n = e == UInt8(ascii: "u") ? 4 : 8
                     guard i + n <= b.count, let v = UInt32(String(decoding: b[i..<i + n], as: UTF8.self), radix: 16),
-                          let u = Unicode.Scalar(v) else { throw erro("escape \\u invalido") }
+                          let u = Unicode.Scalar(v) else { throw erro(tr("escape \\u invalido", "invalid \\u escape")) }
                     i += n
                     bytes += Array(String(Character(u)).utf8)
-                default: throw erro("escape invalido")
+                default: throw erro(tr("escape invalido", "invalid escape"))
                 }
                 continue
             }
@@ -758,6 +853,8 @@ final class Monitor {
     var janela = 1
     /// faixas de cor do config.toml (ou as padrao, se ele tiver erro)
     var faixas: Faixas = .padrao
+    /// idioma escolhido no config.toml; nil = o do sistema
+    var idioma: Idioma?
     var erroConfig: String?
     private var configLidoEm: timespec?
     private let csv: Int32
@@ -775,8 +872,10 @@ final class Monitor {
         self.cfg = cfg
         inicio = agora()
         gravouEm = inicio
-        evento(cfg.dir, "INICIO", "intervalo \(numTexto(cfg.intervalo))s, alvos \(cfg.alvosTxt.joined(separator: " "))")
-        leConfig()
+        leConfig()  // antes do INICIO: o events.log sai no idioma escolhido
+        let alvos = cfg.alvosTxt.joined(separator: " ")
+        evento(cfg.dir, tr("INICIO", "START"), tr("intervalo \(numTexto(cfg.intervalo))s, alvos \(alvos)",
+                                                  "interval \(numTexto(cfg.intervalo))s, targets \(alvos)"))
         hist.reserva(Int(DIA / cfg.intervalo) + 64)
         carregar(caminho, desde: inicio - DIA, em: &hist)
         buffer.reserveCapacity(4096)
@@ -794,9 +893,12 @@ final class Monitor {
                 let fim = u + cfg.intervalo
                 fora += fim - caiuEm
                 online = true
-                eventoEm(cfg.dir, fim, "VOLTOU", "ficou fora \(dur(fim - caiuEm)) (sem confirmacao: a medicao parou)")
+                eventoEm(cfg.dir, fim, tr("VOLTOU", "UP"),
+                         tr("ficou fora \(dur(fim - caiuEm)) (sem confirmacao: a medicao parou)",
+                            "was down \(dur(fim - caiuEm)) (unconfirmed: measuring stopped)"))
             }
-            evento(cfg.dir, "PAUSA", "sem medicao por \(dur(a.t - u)) (mac dormiu ou script parado)")
+            evento(cfg.dir, tr("PAUSA", "PAUSE"), tr("sem medicao por \(dur(a.t - u)) (mac dormiu ou app parado)",
+                                                     "no measurements for \(dur(a.t - u)) (Mac asleep or app stopped)"))
         }
         ultimoT = a.t
         medindo = false
@@ -808,12 +910,12 @@ final class Monitor {
             online = false
             quedas += 1
             caiuEm = a.t
-            eventoEm(cfg.dir, a.t, "CAIU", "todos os alvos sem resposta")
+            eventoEm(cfg.dir, a.t, tr("CAIU", "DOWN"), tr("todos os alvos sem resposta", "no target answered"))
         case (.some, false):
             let d = a.t - caiuEm
             fora += d
             online = true
-            eventoEm(cfg.dir, a.t, "VOLTOU", "ficou fora \(dur(d))")
+            eventoEm(cfg.dir, a.t, tr("VOLTOU", "UP"), tr("ficou fora \(dur(d))", "was down \(dur(d))"))
         default:
             break
         }
@@ -840,9 +942,17 @@ final class Monitor {
         return true
     }
 
-    /// Le o config.toml de novo, mudando ou nao.
+    /// Le o config.toml de novo, mudando ou nao, e aplica o idioma. Chamar
+    /// com a trava do Comum (a fila da sonda le o idioma).
     func leConfig() {
-        (faixas, erroConfig) = carregarFaixas(cfg.dir)
+        var (c, e) = carregarConfig(cfg.dir)
+        let novo = idiomaEfetivo(c.idioma)
+        if novo != idiomaAtual {
+            idiomaAtual = novo
+            // a mensagem de erro saiu no idioma anterior
+            if e != nil { (c, e) = carregarConfig(cfg.dir) }
+        }
+        (faixas, idioma, erroConfig) = (c.faixas, c.idioma, e)
         configLidoEm = dataModificacao(juntar(cfg.dir, "config.toml"))
     }
 
@@ -850,9 +960,11 @@ final class Monitor {
     func encerra() {
         grava(agora())
         if !online {
-            evento(cfg.dir, "FIM", "encerrado ainda fora do ar desde \(fmt(caiuEm, "%H:%M:%S"))")
+            evento(cfg.dir, tr("FIM", "END"), tr("encerrado ainda fora do ar desde \(fmt(caiuEm, "%H:%M:%S"))",
+                                                 "closed while still down since \(fmt(caiuEm, "%H:%M:%S"))"))
         } else {
-            evento(cfg.dir, "FIM", "\(quedas) quedas, \(dur(fora)) fora do ar")
+            evento(cfg.dir, tr("FIM", "END"), tr("\(nQuedas(quedas)), \(dur(fora)) fora do ar",
+                                                 "\(nQuedas(quedas)), \(dur(fora)) down"))
         }
     }
 
@@ -1034,7 +1146,7 @@ func marcasHora(_ agora: Double, _ passo: Int) -> [(pos: Double, txt: String)] {
     var v: [(Double, String)] = []
     while t <= agora {
         let h = Int(horaLocal(t).tm_hour)
-        if t >= t0 && h % passo == 0 { v.append(((t - t0) / DIA, "\(h)h")) }
+        if t >= t0 && h % passo == 0 { v.append(((t - t0) / DIA, tr("\(h)h", "\(h):00"))) }
         t += 3600
     }
     return v
@@ -1083,7 +1195,10 @@ func valida(_ linhas: [Rascunho]) -> Lido<Faixas> {
     var acima: Rascunho?
     for (i, l) in linhas.enumerated() {
         if let t = l.ms {
-            guard let v = numero(t) else { return .failure("Linha \(i + 1): \"\(t)\" não é um número de ms válido.") }
+            guard let v = numero(t) else {
+                return .failure(tr("Linha \(i + 1): \"\(t)\" não é um número de ms válido.",
+                                   "Row \(i + 1): \"\(t)\" is not a valid number of ms."))
+            }
             comLimite.append((v, l))
         } else {
             acima = l
@@ -1091,9 +1206,10 @@ func valida(_ linhas: [Rascunho]) -> Lido<Faixas> {
     }
     comLimite.sort { $0.0 < $1.0 }
     for k in comLimite.indices.dropFirst() where comLimite[k].0 == comLimite[k - 1].0 {
-        return .failure("Duas faixas com o mesmo limite (\(formataMs(comLimite[k].0)) ms).")
+        return .failure(tr("Duas faixas com o mesmo limite (\(formataMs(comLimite[k].0)) ms).",
+                           "Two bands with the same limit (\(formataMs(comLimite[k].0)) ms)."))
     }
-    guard let acima else { return .failure("Falta a faixa \"acima\".") }
+    guard let acima else { return .failure(tr("Falta a faixa \"acima\".", "The \"above\" band is missing.")) }
     var v = comLimite.map { Faixa(ateMs: $0.0, cor: $0.1.claro, corEscuro: $0.1.escuro) }
     v.append(Faixa(ateMs: nil, cor: acima.claro, corEscuro: acima.escuro))
     return .success(Faixas(lista: v))

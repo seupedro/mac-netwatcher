@@ -5,6 +5,10 @@ import Darwin
 import Dispatch
 
 setvbuf(stdout, nil, _IOLBF, 0)
+// as mensagens conferidas abaixo sao as em portugues, seja qual for o
+// idioma do Mac (o Monitor aplica o idioma ao ler o config.toml)
+setenv("NETWATCH_IDIOMA", "pt", 1)
+idiomaAtual = .pt
 var falhas = 0
 var atual = ""
 
@@ -179,6 +183,34 @@ caso("config com erro diz onde") {
     confere(e.hasPrefix("linha 1") && e.contains("cores"), e)
     // so uma faixa, sem limite: tudo numa cor
     confere(faixasDe(lerFaixas("faixas = [{ cor = \"#123456\" }]"))?.indice(9e9) == 0)
+}
+
+caso("idioma: config.toml guarda, le e troca so a linha dele") {
+    var (c, e) = lerConfig(textoConfig(.padrao, idioma: .en))
+    confere(e == nil && c.idioma == .en && c.faixas == .padrao, e ?? "")
+    (c, e) = lerConfig(textoConfig(.padrao))
+    confere(e == nil && c.idioma == nil, e ?? "")
+    (c, e) = lerConfig("idioma = \"fr\"\nfaixas = [{ cor = \"#000000\" }]\n")
+    confere(c.idioma == nil && c.faixas.lista.count == 1 && (e ?? "").contains("fr"), e ?? "")
+    // faixas com erro: o idioma continua valendo
+    (c, e) = lerConfig("idioma = \"en\"\nfaixas = [{ cor = \"azul\" }]\n")
+    confere(c.idioma == .en && e != nil)
+    let t = "# x\nidioma = \"pt\"\n  idioma=\"en\"\nidiomas = 1\nfaixas = []\n"
+    let en = trocaIdioma(t, .en)
+    confere(en.hasPrefix("idioma = \"en\"\n# x\n") && !en.contains("\"pt\"") && en.contains("idiomas = 1"), en)
+    confere(!trocaIdioma(t, nil).contains("idioma ="), trocaIdioma(t, nil))
+}
+
+caso("ingles: textos e mensagens") {
+    idiomaAtual = .en
+    confere(nQuedas(1) == "1 outage" && nQuedas(3) == "3 outages")
+    let e = erroDe(lerFaixas("faixas = [\n  { ate_ms = 100, cor = \"#00ff00\" },\n  { cor = \"vermelho\" },\n]"))
+    confere(e.contains("band 2") && e.contains("invalid color"), e)
+    confere(erroDe(lerFaixas("faixas = [\n  { cor = 1 \n")).hasPrefix("line "), erroDe(lerFaixas("faixas = [\n  { cor = 1 \n")))
+    confere(marcasHora(agora(), 3).allSatisfy { $0.txt.hasSuffix(":00") })
+    confere(textoConfig(.padrao).contains("# Latency color bands"))
+    idiomaAtual = .pt
+    confere(nQuedas(1) == "1 queda" && marcasHora(agora(), 3).allSatisfy { $0.txt.hasSuffix("h") })
 }
 
 caso("toml: [[faixas]], comentarios e virgula no fim") {

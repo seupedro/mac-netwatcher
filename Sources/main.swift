@@ -1,4 +1,5 @@
-// Netwatch nativo - o netwatch na barra de menus do macOS, em Swift + AppKit.
+// Mac Netwatcher - a conexao com a internet na barra de menus do macOS, em
+// Swift + AppKit.
 //
 // Um NSStatusItem mostra a latencia e, ao clicar, um menu com o painel
 // desenhado a mao (sem WebView, sem HTML). Testa a conexao por TCP, entao
@@ -11,6 +12,9 @@
 
 import AppKit
 
+let NOME_APP = "Mac Netwatcher"
+let SITE = "https://github.com/seupedro/mac-netwatcher"
+
 @MainActor
 enum App {
     static var comum: Comum!
@@ -21,6 +25,8 @@ enum App {
     static var barraAplicada: UInt64 = 0
     static let fundoDeTeste = getenv("NETWATCH_PNG") != nil
     static var sinais: [DispatchSourceSignal] = []
+    /// itens do menu da barra que tem texto, na ordem de traduzMenus
+    static var itensComTexto: [NSMenuItem] = []
     static var observadores: [NSObjectProtocol] = []
 
     /// Bolinha colorida e latencia no botao da barra de menus.
@@ -49,13 +55,13 @@ enum App {
         if aberto { painel.needsDisplay = true }
         if png, let d = getenv("NETWATCH_PNG") {
             let destino = String(cString: d)
-            // NETWATCH_PNG_AJUSTES=1: a imagem e da janela de configuracoes
+            // NETWATCH_PNG_AJUSTES=1|salvar|trocar: a imagem e da janela de configuracoes
             if let a = getenv("NETWATCH_PNG_AJUSTES") {
-                Ajustes.salvaPng(destino, salvar: String(cString: a) == "salvar")
+                Ajustes.salvaPng(destino, modo: String(cString: a)) { encerrar() }
             } else {
                 salvaPng(painel, destino)
+                encerrar()
             }
-            encerrar()
         }
         if teste { testeDeMemoria() }
     }
@@ -108,10 +114,36 @@ enum App {
         malloc_zone_pressure_relief(nil, 0)
     }
 
-    static func itemMenu(_ titulo: String, _ acao: Selector, _ tecla: String) -> NSMenuItem {
-        let it = NSMenuItem(title: titulo, action: acao, keyEquivalent: tecla)
+    static func itemMenu(_ acao: Selector, _ tecla: String) -> NSMenuItem {
+        let it = NSMenuItem(title: "", action: acao, keyEquivalent: tecla)
         it.target = Acoes.shared
+        itensComTexto.append(it)
         return it
+    }
+
+    /// Poe os textos do menu da barra e do menu principal no idioma em uso.
+    static func traduzMenus() {
+        let titulos = [
+            tr("Abrir histórico de quedas", "Open outage history"),
+            tr("Mostrar logs no Finder", "Show logs in Finder"),
+            tr("Configurações…", "Settings…"),
+            tr("Sair do \(NOME_APP)", "Quit \(NOME_APP)"),
+        ]
+        for (it, t) in zip(itensComTexto, titulos) { it.title = t }
+        NSApp.mainMenu = menuPrincipal()
+    }
+
+    /// O idioma mudou (janela de configuracoes ou config.toml editado): troca
+    /// os textos de tudo que ja esta na tela.
+    static func idiomaMudou() {
+        traduzMenus()
+        comum.com { c in
+            c.barra.classe = .max  // "sem rede" / "offline"
+            _ = barraMudou(c, aberto: c.menuAberto)
+            aplicaBarra(c.barra, c.m.faixas)
+        }
+        painel.needsDisplay = true
+        Ajustes.aberta?.traduz()
     }
 
     /// Menu principal invisivel (app de barra de menus nao mostra), so para os
@@ -126,14 +158,14 @@ enum App {
             return it
         }
         let principal = NSMenu()
-        principal.addItem(sub("Netwatch", [("Fechar janela", #selector(NSWindow.performClose(_:)), "w")]))
-        principal.addItem(sub("Editar", [
-            ("Desfazer", Selector(("undo:")), "z"),
-            ("Refazer", Selector(("redo:")), "Z"),
-            ("Recortar", #selector(NSText.cut(_:)), "x"),
-            ("Copiar", #selector(NSText.copy(_:)), "c"),
-            ("Colar", #selector(NSText.paste(_:)), "v"),
-            ("Selecionar tudo", #selector(NSText.selectAll(_:)), "a"),
+        principal.addItem(sub(NOME_APP, [(tr("Fechar janela", "Close Window"), #selector(NSWindow.performClose(_:)), "w")]))
+        principal.addItem(sub(tr("Editar", "Edit"), [
+            (tr("Desfazer", "Undo"), Selector(("undo:")), "z"),
+            (tr("Refazer", "Redo"), Selector(("redo:")), "Z"),
+            (tr("Recortar", "Cut"), #selector(NSText.cut(_:)), "x"),
+            (tr("Copiar", "Copy"), #selector(NSText.copy(_:)), "c"),
+            (tr("Colar", "Paste"), #selector(NSText.paste(_:)), "v"),
+            (tr("Selecionar tudo", "Select All"), #selector(NSText.selectAll(_:)), "a"),
         ]))
         return principal
     }
@@ -199,12 +231,12 @@ enum App {
         it.view = painel
         menu.addItem(it)
         menu.addItem(.separator())
-        menu.addItem(itemMenu("Abrir histórico de quedas", #selector(Acoes.abrirHistorico(_:)), ""))
-        menu.addItem(itemMenu("Mostrar logs no Finder", #selector(Acoes.mostrarPasta(_:)), ""))
-        menu.addItem(itemMenu("Configurações…", #selector(Acoes.abrirAjustes(_:)), ","))
+        menu.addItem(itemMenu(#selector(Acoes.abrirHistorico(_:)), ""))
+        menu.addItem(itemMenu(#selector(Acoes.mostrarPasta(_:)), ""))
+        menu.addItem(itemMenu(#selector(Acoes.abrirAjustes(_:)), ","))
         menu.addItem(.separator())
-        menu.addItem(itemMenu("Sair do Netwatch", #selector(Acoes.sair(_:)), "q"))
-        app.mainMenu = menuPrincipal()
+        menu.addItem(itemMenu(#selector(Acoes.sair(_:)), "q"))
+        traduzMenus()
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.menu = menu

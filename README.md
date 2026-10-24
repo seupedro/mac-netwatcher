@@ -1,11 +1,13 @@
-# Netwatch
+# Mac Netwatcher
+
+**English** · [Português](README.pt-BR.md)
 
 A tiny macOS menu bar app that shows whether your internet is working right
 now, and keeps a record of every time it dropped.
 
 <p align="center">
-  <img src="docs/painel-escuro.png" width="440" alt="Netwatch panel, dark mode">
-  <img src="docs/painel-claro.png" width="440" alt="Netwatch panel, light mode">
+  <img src="docs/en/panel-dark.png" width="440" alt="Mac Netwatcher panel, dark mode">
+  <img src="docs/en/panel-light.png" width="440" alt="Mac Netwatcher panel, light mode">
 </p>
 
 ## What it does
@@ -27,6 +29,8 @@ now, and keeps a record of every time it dropped.
 - **Knows when the Mac is asleep.** It pauses during sleep (including the
   short maintenance wakes with the lid closed), so sleep never shows up as an
   outage.
+- **English and Portuguese.** It follows the macOS language, or you pick one
+  in Settings.
 
 ## Built for low memory and battery use
 
@@ -39,7 +43,7 @@ Apple silicon (macOS 15), menu closed, over 20-minute runs:
 | Energy Impact (Activity Monitor) | **0.0** |
 | CPU | **~0.04 %** (about half a second of CPU every 20 minutes) |
 | Wakeups | **~0.15 per second** |
-| App size | 560 KB (universal binary) |
+| App size | 650 KB (universal binary) |
 
 How it gets there:
 
@@ -57,9 +61,11 @@ How it gets there:
 - **Compact history.** 8 bytes per sample. Samples go to disk in batches every
   30 s; outages are written immediately.
 - **Native and dependency-free.** Plain AppKit, drawn by hand: no WebView, no
-  Electron, no third-party libraries.
+  Electron, no third-party libraries. The translations are plain strings in
+  the code, with no localization bundles to load.
 - **Careful with the color picker.** It opens on the RGB sliders, because
-  showing the color wheel alone pushes the app to about 70 MB.
+  showing the color wheel alone pushes the app to about 70 MB. The Settings
+  window is released as soon as you close it.
 
 Opening the menu can briefly use more memory, because macOS sets up graphics
 buffers for it: up to about 90 MB for a moment in dark mode. It settles back
@@ -72,35 +78,35 @@ Requires macOS 14 or later (Apple silicon or Intel).
 ### With Homebrew
 
 ```sh
-brew install --cask seupedro/tap/netwatch
+brew install --cask seupedro/tap/mac-netwatcher
 ```
 
 The cask removes the quarantine flag, so it opens without the Gatekeeper
 warning. To start it at login: **System Settings → General → Login Items**.
-`brew uninstall --cask netwatch` removes it (`--zap` also deletes the data in
-`~/.netwatch`).
+`brew uninstall --cask mac-netwatcher` removes it (`--zap` also deletes the
+data in `~/.netwatch`).
 
 ### Manually
 
-1. Download `Netwatch-1.0.0.zip` from
-   [Releases](https://github.com/seupedro/netwatch/releases), unzip it and move
-   `Netwatch.app` to `/Applications`.
+1. Download `mac-netwatcher-1.1.0.zip` from
+   [Releases](https://github.com/seupedro/mac-netwatcher/releases), unzip it
+   and move `Mac Netwatcher.app` to `/Applications`.
 2. The app isn't notarized by Apple. The first time you open it, macOS will
    block it: go to **System Settings → Privacy & Security** and click
    **Open Anyway**. Or run:
    ```sh
-   xattr -dr com.apple.quarantine /Applications/Netwatch.app
+   xattr -dr com.apple.quarantine "/Applications/Mac Netwatcher.app"
    ```
 3. To start it at login: **System Settings → General → Login Items** and add
-   Netwatch.
+   Mac Netwatcher.
 
 ### From source
 
 Needs the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/seupedro/netwatch
-cd netwatch
+git clone https://github.com/seupedro/mac-netwatcher
+cd mac-netwatcher
 scripts/instalar.sh   # builds, installs to /Applications and starts at login
 ```
 
@@ -109,12 +115,27 @@ to the Trash; your data stays in `~/.netwatch`.
 
 ## Settings
 
-Open the menu → **Configurações…** (⌘,), or edit `~/.netwatch/config.toml`.
-You can have as many color bands as you want:
+Open the menu → **Settings…** (⌘,). The window has three tabs.
 
-<p align="center"><img src="docs/configuracoes.png" width="430" alt="Settings window"></p>
+**Colors:** the latency color bands. You can have as many as you want.
+
+<p align="center"><img src="docs/en/settings-colors.png" width="430" alt="Settings, Colors tab"></p>
+
+**Language:** English, Portuguese, or Automatic (follows the macOS language).
+It applies right away, without restarting.
+
+<p align="center"><img src="docs/en/settings-language.png" width="430" alt="Settings, Language tab"></p>
+
+**About:** version, license and a link to this page.
+
+<p align="center"><img src="docs/en/settings-about.png" width="430" alt="Settings, About tab"></p>
+
+Everything is saved in `~/.netwatch/config.toml`, which you can also edit by
+hand (then open the menu again to apply):
 
 ```toml
+idioma = "en"  # "en" or "pt"; remove the line to follow macOS
+
 faixas = [
   { ate_ms = 100, cor = "#168038", cor_escuro = "#30d158" },  # up to 100 ms: green
   { ate_ms = 200, cor = "#967300", cor_escuro = "#ffd60a" },  # up to 200 ms: yellow
@@ -130,24 +151,23 @@ faixas = [
 | File | Contents |
 |---|---|
 | `~/.netwatch/samples.csv` | One line per test: time, epoch, latency in ms (empty = no answer), server |
-| `~/.netwatch/events.log` | `CAIU` (went down), `VOLTOU` (came back), `PAUSA` (no measurements, e.g. sleep) |
-| `~/.netwatch/config.toml` | Color bands |
+| `~/.netwatch/events.log` | `DOWN`, `UP`, `PAUSE` (no measurements, e.g. sleep), `START` and `END` (`CAIU`, `VOLTOU`, `PAUSA`, `INICIO`, `FIM` in Portuguese) |
+| `~/.netwatch/config.toml` | Language and color bands |
 | `~/Library/Logs/Netwatch.log` | App log (when started by the LaunchAgent) |
-
-The interface is in Brazilian Portuguese ("Sem conexão" = no connection,
-"Quedas" = outages).
 
 ## Development
 
 ```sh
-scripts/compilar.sh   # build/Netwatch.app (universal)
+scripts/compilar.sh   # "build/Mac Netwatcher.app" (universal)
 scripts/testar.sh     # tests
+scripts/capturas.sh   # the screenshots in docs/, from made-up data
 ```
 
 For testing without touching your real data, run the binary with
 `NETWATCH_DIR=/some/folder`. Add `NETWATCH_PNG=panel.png` to save the panel as
-an image and quit; `NETWATCH_JANELA=0-5` picks the time window and
-`NETWATCH_TEMA=claro|escuro` the theme.
+an image and quit; `NETWATCH_JANELA=0-5` picks the time window,
+`NETWATCH_TEMA=claro|escuro` the theme and `NETWATCH_IDIOMA=en|pt` the
+language. The code and its comments are in Portuguese.
 
 ## License
 

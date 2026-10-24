@@ -97,7 +97,7 @@ func barraMudou(_ c: Comum, aberto: Bool) -> Bool {
         muda = false
     }
     if !muda { return false }
-    let txt = classe == 1 ? "sem rede" : ms.map(textoMs) ?? "…"
+    let txt = classe == 1 ? tr("sem rede", "offline") : ms.map(textoMs) ?? "…"
     c.barra = Barra(classe: classe, txt: txt, ms: ms ?? 0, trocouEm: t, versao: b.versao + 1)
     return true
 }
